@@ -2,7 +2,7 @@
 echo installing requirements
 python -m venv venv
 
-myenv\Scripts\activate
+venv\Scripts\activate
 
 pip install -r requirements.txt
 
