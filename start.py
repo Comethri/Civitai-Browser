@@ -74,6 +74,7 @@ class ModelBrowser(QWidget):
 
         self.page_number_entry = QLineEdit(self)
         self.page_number_entry.setText("1")
+        self.page_number_entry.returnPressed.connect(self.go_to_page)
         self.page_number_entry.setStyleSheet("padding: 5px; font-size: 14px;")
 
         self.go_button = QPushButton("Go to Page", self)
