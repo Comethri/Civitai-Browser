@@ -28,6 +28,7 @@ class DataLoaderThread(QThread):
         r = requests.get(url)
         data = r.json()
         self.data_loaded.emit(data)
+
 class ImageLoaderThread(QThread):
     image_loaded = pyqtSignal(QImage)
 
