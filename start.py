@@ -1,17 +1,15 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout, QFrame, QScrollArea, QGridLayout
-from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt
+from PyQt5.QtCore import QThread, pyqtSignal
 
 import requests
-from PIL import Image
-import io
 
 model_api = "https://civitai.com/api/v1/models"
 items_per_page = 10
 
 class DataLoaderThread(QThread):
     data_loaded = pyqtSignal(dict)
+    api_call_finished = pyqtSignal()  # Füge diese Zeile hinzu
 
     def __init__(self, page_number, search_text=None):
         super().__init__()
@@ -28,32 +26,8 @@ class DataLoaderThread(QThread):
         r = requests.get(url)
         data = r.json()
         self.data_loaded.emit(data)
+        self.api_call_finished.emit()
 
-class ImageLoaderThread(QThread):
-    image_loaded = pyqtSignal(QImage)
-
-    def __init__(self, url):
-        super().__init__()
-        self.url = url
-
-    def run(self):
-        try:
-            print("loading image")
-            response = requests.get(self.url)
-            if response.status_code == 200:
-                image_data = response.content
-                image = Image.open(io.BytesIO(image_data))
-
-                max_size = (150, 150)  # max width, height
-                image.thumbnail(max_size, Image.LANCZOS)
-
-                if image.mode != "RGB":
-                    image = image.convert("RGB")
-
-                q_image = QImage(image.tobytes("raw", "RGB"), image.width, image.height, QImage.Format_RGB888)
-                self.image_loaded.emit(q_image)
-        except Exception as e:
-            print(f"error loading image: {e}")
 
 class ModelBrowser(QWidget):
     def __init__(self, parent=None):
@@ -103,10 +77,6 @@ class ModelBrowser(QWidget):
         input_layout.addWidget(self.page_number_entry)
         input_layout.addWidget(self.go_button)
 
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.prev_button)
-        button_layout.addWidget(self.next_button)
-
         home_layout = QHBoxLayout()
         home_layout.addWidget(self.home_button)
 
@@ -129,23 +99,18 @@ class ModelBrowser(QWidget):
 
         self.data_loader_thread = DataLoaderThread(1)
         self.data_loader_thread.data_loaded.connect(self.handle_data_loaded)
-
-        self.image_loader_threads = []  # Liste zur Verfolgung der ImageLoaderThreads
+        self.data_loader_thread.api_call_finished.connect(self.api_call_finished)
 
         self.fetch_data(1)
 
-    def fetch_and_display_image(self, url, grid_row, grid_col):
-        image_loader_thread = ImageLoaderThread(url)
-        image_loader_thread.image_loaded.connect(lambda image: self.display_image(image, grid_row, grid_col))
-        image_loader_thread.finished.connect(self.update_gui)
-        image_loader_thread.start()
-        self.image_loader_threads.append(image_loader_thread)  # Hinzufügen des Threads zur Liste
+    def api_call_finished(self):
+        current_page = int(self.page_number_entry.text())
+        print(f"Finish. Current Page: {current_page}")
 
     def closeEvent(self, event):
-        # Bei Schließen des Fensters alle ImageLoaderThreads beenden
-        for thread in self.image_loader_threads:
-            thread.quit()
-            thread.wait()
+        # Bei Schließen des Fensters alle DataLoaderThreads beenden
+        self.data_loader_thread.quit()
+        self.data_loader_thread.wait()
         event.accept()
 
     def update_gui(self):
@@ -168,19 +133,10 @@ class ModelBrowser(QWidget):
         self.data_loader_thread.page_number = page_number
         self.data_loader_thread.start()
 
-    def display_image(self, image, grid_row, grid_col):
-        image_label = QLabel()
-        image_label.setPixmap(QPixmap.fromImage(image))
-        self.grid_layout.addWidget(image_label, grid_row, grid_col)
-
     def display_item_info(self, item, grid_row, grid_col):
         id = item.get('id', 'N/A')
         name = item.get('name', 'N/A')
         type = item.get('type', 'N/A')
-
-        if 'modelVersions' in item and 'images' in item['modelVersions'][0]:
-            image_url = item['modelVersions'][0]['images'][0]['url']
-            self.fetch_and_display_image(image_url, grid_row, grid_col)
 
         info_text = f"ID: {id}\nName: {name}\nType: {type}"
         info_label = QLabel(info_text)
@@ -219,7 +175,6 @@ class ModelBrowser(QWidget):
                 grid_col += 2
                 grid_row = 0
         print("lags ended, loaded succesfully")
-
 
     def fetch_data(self, page_number):
         self.data_loader_thread.page_number = page_number
@@ -276,9 +231,6 @@ class ModelBrowser(QWidget):
         print("Home Button clicked. Showing home page.")
         self.search_entry.clear()
         self.fetch_data_with_search("")
-
-    def update_gui(self):
-        QApplication.processEvents()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
