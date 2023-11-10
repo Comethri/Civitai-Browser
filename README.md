@@ -2,7 +2,7 @@
 
 ## Getting Started
 
-1. Run `setup_environment.bat` to let pip install all the necessary dependencies. Just sit back and relax while it does its magic.
+1. Run `install.bat` to let pip install all the necessary dependencies. Just sit back and relax while it does its magic.
 2. Once the setup is complete, launch the CivitAI-Browser using `start.bat`.
 3. You're now ready to embark on your AI model exploration journey!
 
@@ -16,4 +16,4 @@
 - *Crashes when dragged while loading*
 
 
-![Screenshot](stuff/Tool_screenshot.png)
+![Screenshot](stuff/Tool_Screenshot.png)
