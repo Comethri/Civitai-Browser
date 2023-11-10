@@ -14,3 +14,6 @@
 ## Known Bugs
 
 - *Crashes when dragged while loading*
+
+
+![Screenshot](stuff/Tool_screenshot.png)

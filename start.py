@@ -1,15 +1,22 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout, QFrame, QScrollArea, QGridLayout
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout, QFrame, QScrollArea, QGridLayout, QDialog
 from PyQt5.QtCore import QThread, pyqtSignal
-
 import requests
+import configparser
+import os
 
+script_path = os.path.dirname(os.path.abspath(__file__))
+
+ini_path = os.path.join(script_path, 'stuff', 'config.ini')
 model_api = "https://civitai.com/api/v1/models"
-items_per_page = 10
+
+config = configparser.ConfigParser()
+config.read(ini_path)
+
+items_per_page = int(config['General']['items_per_page'])
 
 class DataLoaderThread(QThread):
     data_loaded = pyqtSignal(dict)
-    api_call_finished = pyqtSignal()  # Füge diese Zeile hinzu
 
     def __init__(self, page_number, search_text=None):
         super().__init__()
@@ -26,16 +33,38 @@ class DataLoaderThread(QThread):
         r = requests.get(url)
         data = r.json()
         self.data_loaded.emit(data)
-        self.api_call_finished.emit()
 
+# Detailed information, coming upo when left clicked on model info, TBQ
+class ModelDetailDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Model Details")
+        self.setGeometry(200, 200, 400, 300)
+
+    def set_model_details(self, details):
+        if not isinstance(details, dict):
+            details = {}
+
+        details_label = QLabel()
+        details_text = ""
+        for key, value in details.items():
+            details_text += f"{key}: {value}\n"
+
+        details_label.setText(details_text)
+        layout = QVBoxLayout()
+        layout.addWidget(details_label)
+        self.setLayout(layout)
+
+    def convert_boolean_to_string(self, boolean_value):
+        return "Yes" if boolean_value else "No"
 
 class ModelBrowser(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        print("Loading gui")
 
         self.setWindowTitle("CivitAI Models Browser")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1000, 800)
+        self.setStyleSheet("ModelBrowser {background-color: #2d2d2d; color: white;}")
 
         self.page_number_label = QLabel(self)
         self.page_number_label.setText("Page 1 of 1")
@@ -82,11 +111,15 @@ class ModelBrowser(QWidget):
 
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setStyleSheet("QScrollArea {background-color: #2d2d2d;}")
 
         self.scroll_contents = QWidget()
         self.scroll_area.setWidget(self.scroll_contents)
+        self.scroll_contents.setStyleSheet("QWidget {background-color: #2d2d2d; color: #fff;}")
 
         self.grid_layout = QGridLayout(self.scroll_contents)
+        self.grid_layout.setHorizontalSpacing(0)
+        self.grid_layout.setVerticalSpacing(0)
 
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(self.page_number_label)
@@ -99,16 +132,10 @@ class ModelBrowser(QWidget):
 
         self.data_loader_thread = DataLoaderThread(1)
         self.data_loader_thread.data_loaded.connect(self.handle_data_loaded)
-        self.data_loader_thread.api_call_finished.connect(self.api_call_finished)
 
         self.fetch_data(1)
 
-    def api_call_finished(self):
-        current_page = int(self.page_number_entry.text())
-        print(f"Finish. Current Page: {current_page}")
-
     def closeEvent(self, event):
-        # Bei Schließen des Fensters alle DataLoaderThreads beenden
         self.data_loader_thread.quit()
         self.data_loader_thread.wait()
         event.accept()
@@ -137,10 +164,31 @@ class ModelBrowser(QWidget):
         id = item.get('id', 'N/A')
         name = item.get('name', 'N/A')
         type = item.get('type', 'N/A')
+        nsfw = item.get('nsfw', False)
+        nsfw_string = self.convert_boolean_to_string(nsfw)
+        allow_commercial_use = item.get('allowCommercialUse', False)
+        allow_commercial_use_string = self.convert_boolean_to_string(allow_commercial_use)
+        model_versions = item.get('modelVersions', [])
+        num_model_versions = len(model_versions)
 
-        info_text = f"ID: {id}\nName: {name}\nType: {type}"
+        info_text = f"ID: {id}\nName: {name}\nType: {type}\nNSFW: {nsfw_string}\nAllow Commercial Use: {allow_commercial_use_string}"
+        info_text += f"\nNumber of Model Versions: {num_model_versions}"
         info_label = QLabel(info_text)
-        self.grid_layout.addWidget(info_label, grid_row, grid_col + 1)
+        frame = QFrame()
+        frame.setFrameStyle(QFrame.Panel | QFrame.Raised)
+        frame.setLayout(QVBoxLayout())
+        frame.layout().addWidget(info_label)
+        self.grid_layout.addWidget(frame, grid_row, grid_col)
+
+        frame.mousePressEvent = lambda event, item=item: self.show_model_details(item)
+
+    def convert_boolean_to_string(self, boolean_value):
+        return "Yes" if boolean_value else "No"
+    
+    def show_model_details(self, item):
+        details_dialog = ModelDetailDialog(self)
+        details_dialog.set_model_details(str(item))
+        details_dialog.exec_()
 
     def print_items(self, items):
         for i in reversed(range(self.grid_layout.count())):
@@ -157,40 +205,6 @@ class ModelBrowser(QWidget):
             if grid_row >= 5:
                 grid_col += 2
                 grid_row = 0
-
-    def delayed_print_items(self, items):
-        print("Laaaaaaaaaags")
-        for i in reversed(range(self.grid_layout.count())):
-            widget = self.grid_layout.itemAt(i).widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        grid_row, grid_col = 0, 0
-
-        for item in items:
-            self.display_item_info(item, grid_row, grid_col)
-            grid_row += 1
-
-            if grid_row >= 5:
-                grid_col += 2
-                grid_row = 0
-        print("lags ended, loaded succesfully")
-
-    def fetch_data(self, page_number):
-        self.data_loader_thread.page_number = page_number
-        self.data_loader_thread.start()
-
-    def handle_data_loaded(self, data):
-        items = data.get('items', [])
-        metadata = data.get('metadata', {})
-
-        current_page = metadata.get('currentPage', 1)
-        total_pages = metadata.get('totalPages', 1)
-        self.page_number_entry.setText(str(current_page))
-        self.page_number_label.setText(f"Page {current_page} of {total_pages}")
-        self.prev_button.setEnabled(current_page > 1)
-        self.next_button.setEnabled(current_page < total_pages)
-        self.print_items(items)
 
     def navigate_prev(self):
         current_page = int(self.page_number_entry.text())
@@ -216,10 +230,8 @@ class ModelBrowser(QWidget):
         print(f"Searching for: {search_text}")
 
         if search_text:
-            # query search text
             self.fetch_data_with_search(search_text)
         else:
-            # search nothing when searchbar is empty
             self.fetch_data(1)
 
     def fetch_data_with_search(self, search_text):

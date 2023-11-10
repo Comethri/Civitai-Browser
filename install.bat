@@ -1,17 +1,10 @@
 @echo off
-echo installing requirements
-
-REM Erstelle eine virtuelle Umgebung
+echo creating environment
 python -m venv venv
-
-REM Aktiviere die virtuelle Umgebung (angepasst an dein Betriebssystem)
-REM Windows
-venv\Scripts\activate
-
-REM Installiere die Python-Abhängigkeiten aus der requirements.txt-Datei
+call venv\Scripts\activate
+echo created environment
+echo Installing requirements, may take some time
 pip install -r requirements.txt
-
-echo finished
-
-REM Deaktiviere die virtuelle Umgebung
+echo Done, you can now start via "start.bat"
+pause
 deactivate
