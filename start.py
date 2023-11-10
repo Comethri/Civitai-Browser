@@ -1,9 +1,10 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout, QFrame, QScrollArea, QGridLayout, QDialog
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QUrl, Qt
 import requests
 import configparser
 import os
+import webbrowser
 
 script_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -41,22 +42,59 @@ class ModelDetailDialog(QDialog):
         self.setWindowTitle("Model Details")
         self.setGeometry(200, 200, 400, 300)
 
+        # QVBoxLayout für das Label erstellen
+        self.layout = QVBoxLayout(self)
+        self.details_label = QLabel()
+        self.layout.addWidget(self.details_label)
+
+        # Stileigenschaften anpassen
+        self.setStyleSheet("QDialog {background-color: #2d2d2d; color: white;}")
+        self.details_label.setStyleSheet("QLabel {color: white;}")
+
     def set_model_details(self, details):
         if not isinstance(details, dict):
             details = {}
 
-        details_label = QLabel()
-        details_text = ""
-        for key, value in details.items():
-            details_text += f"{key}: {value}\n"
+        # Grundinformationen (Modellname, Typ, NSFW, erlaubte kommerzielle Nutzung)
+        details_text = f"Name: {details.get('name', 'N/A')}\n"
+        details_text += f"Type: {details.get('type', 'N/A')}\n"
+        details_text += f"NSFW: {self.convert_boolean_to_string(details.get('nsfw', False))}\n"
+        details_text += f"Allow Commercial Use: {self.convert_boolean_to_string(details.get('allowCommercialUse', False))}\n"
 
-        details_label.setText(details_text)
-        layout = QVBoxLayout()
-        layout.addWidget(details_label)
-        self.setLayout(layout)
+        # Anzeige von Modelversionen
+        model_versions = details.get('modelVersions', [])
+        if model_versions:
+            details_text += "\nModel Versions:\n"
+            for version in model_versions:
+                # Details für jedes Modell-Version-Set zurücksetzen
+                model_details_text = ""
+
+                model_details_text += f"  - Name: {version.get('name', 'N/A')}\n"
+                model_details_text += f"    BaseModel: {version.get('baseModel', 'N/A')}\n"
+                
+                # Hier wird die DownloadUrl als anklickbarer Link hinzugefügt
+                download_url = version.get('downloadUrl', 'N/A')
+                model_details_text += f"    DownloadUrl: {download_url}\n"
+
+                # Einen Button hinzufügen, um den Download in Python zu starten
+                download_button = QPushButton("Download")
+                download_button.clicked.connect(lambda _, url=download_url: self.download_file(url))
+
+                # QLabel für jedes Model-Version-Set erstellen und in das Layout hinzufügen
+                model_version_label = QLabel(model_details_text)
+                model_version_label.setStyleSheet("QLabel {color: white;}")
+                self.layout.addWidget(model_version_label)
+                self.layout.addWidget(download_button)
+
+        # QLabel für Grundinformationen in das Layout hinzufügen
+        self.details_label.setText(details_text)
 
     def convert_boolean_to_string(self, boolean_value):
         return "Yes" if boolean_value else "No"
+    
+    def download_file(self, url):
+        print("Open Browser to download: ")
+        webbrowser.open(url)
 
 class ModelBrowser(QWidget):
     def __init__(self, parent=None):
@@ -186,8 +224,12 @@ class ModelBrowser(QWidget):
         return "Yes" if boolean_value else "No"
     
     def show_model_details(self, item):
+        model_name = item.get('name', 'N/A')
+        print(f"Open Model Details: {model_name}")
+        
         details_dialog = ModelDetailDialog(self)
-        details_dialog.set_model_details(str(item))
+        details_dialog.setWindowTitle(f"{model_name}")
+        details_dialog.set_model_details(item)
         details_dialog.exec_()
 
     def print_items(self, items):
