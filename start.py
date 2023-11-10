@@ -42,12 +42,10 @@ class ModelDetailDialog(QDialog):
         self.setWindowTitle("Model Details")
         self.setGeometry(200, 200, 400, 300)
 
-        # QVBoxLayout für das Label erstellen
         self.layout = QVBoxLayout(self)
         self.details_label = QLabel()
         self.layout.addWidget(self.details_label)
 
-        # Stileigenschaften anpassen
         self.setStyleSheet("QDialog {background-color: #2d2d2d; color: white;}")
         self.details_label.setStyleSheet("QLabel {color: white;}")
 
@@ -55,38 +53,34 @@ class ModelDetailDialog(QDialog):
         if not isinstance(details, dict):
             details = {}
 
-        # Grundinformationen (Modellname, Typ, NSFW, erlaubte kommerzielle Nutzung)
+        # information about model
         details_text = f"Name: {details.get('name', 'N/A')}\n"
         details_text += f"Type: {details.get('type', 'N/A')}\n"
         details_text += f"NSFW: {self.convert_boolean_to_string(details.get('nsfw', False))}\n"
         details_text += f"Allow Commercial Use: {self.convert_boolean_to_string(details.get('allowCommercialUse', False))}\n"
 
-        # Anzeige von Modelversionen
+        # show model version
         model_versions = details.get('modelVersions', [])
         if model_versions:
             details_text += "\nModel Versions:\n"
             for version in model_versions:
-                # Details für jedes Modell-Version-Set zurücksetzen
                 model_details_text = ""
 
                 model_details_text += f"  - Name: {version.get('name', 'N/A')}\n"
                 model_details_text += f"    BaseModel: {version.get('baseModel', 'N/A')}\n"
                 
-                # Hier wird die DownloadUrl als anklickbarer Link hinzugefügt
+                # Download button
                 download_url = version.get('downloadUrl', 'N/A')
                 model_details_text += f"    DownloadUrl: {download_url}\n"
 
-                # Einen Button hinzufügen, um den Download in Python zu starten
                 download_button = QPushButton("Download")
                 download_button.clicked.connect(lambda _, url=download_url: self.download_file(url))
 
-                # QLabel für jedes Model-Version-Set erstellen und in das Layout hinzufügen
                 model_version_label = QLabel(model_details_text)
                 model_version_label.setStyleSheet("QLabel {color: white;}")
                 self.layout.addWidget(model_version_label)
                 self.layout.addWidget(download_button)
 
-        # QLabel für Grundinformationen in das Layout hinzufügen
         self.details_label.setText(details_text)
 
     def convert_boolean_to_string(self, boolean_value):
