@@ -1,21 +1,28 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QLineEdit, QVBoxLayout, QHBoxLayout, QFrame, QScrollArea, QGridLayout, QDialog
-from PyQt5.QtCore import QThread, pyqtSignal, QUrl, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtGui import QPixmap
+import threading
 import requests
 import configparser
 import os
 import webbrowser
 
+# Get the directory of the script
 script_path = os.path.dirname(os.path.abspath(__file__))
 
+# Set the path for the configuration file
 ini_path = os.path.join(script_path, 'stuff', 'config.ini')
 model_api = "https://civitai.com/api/v1/models"
 
+# Read the configuration file
 config = configparser.ConfigParser()
 config.read(ini_path)
 
+# Number of items to display per page
 items_per_page = int(config['General']['items_per_page'])
 
+# Thread for loading data from the API
 class DataLoaderThread(QThread):
     data_loaded = pyqtSignal(dict)
 
@@ -31,11 +38,16 @@ class DataLoaderThread(QThread):
             url = f"{model_api}?page={self.page_number}&limit={items_per_page}"
 
         print("API Call:", url)
-        r = requests.get(url)
-        data = r.json()
-        self.data_loaded.emit(data)
 
-# Detailed information, coming upo when left clicked on model info, TBQ
+        try:
+            r = requests.get(url)
+            r.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
+            data = r.json()
+            self.data_loaded.emit(data)
+        except requests.RequestException as e:
+            print(f"Failed to fetch data from the API: {e}")
+
+# Dialog for displaying detailed model information
 class ModelDetailDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -53,13 +65,13 @@ class ModelDetailDialog(QDialog):
         if not isinstance(details, dict):
             details = {}
 
-        # information about model
+        # Information about the model
         details_text = f"Name: {details.get('name', 'N/A')}\n"
         details_text += f"Type: {details.get('type', 'N/A')}\n"
         details_text += f"NSFW: {self.convert_boolean_to_string(details.get('nsfw', False))}\n"
         details_text += f"Allow Commercial Use: {self.convert_boolean_to_string(details.get('allowCommercialUse', False))}\n"
 
-        # show model version
+        # Show model version details
         model_versions = details.get('modelVersions', [])
         if model_versions:
             details_text += "\nModel Versions:\n"
@@ -90,14 +102,18 @@ class ModelDetailDialog(QDialog):
         print("Open Browser to download: ")
         webbrowser.open(url)
 
+# Widget for browsing and displaying models
 class ModelBrowser(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        self.cache_lock = threading.Lock()
 
         self.setWindowTitle("CivitAI Models Browser")
         self.setGeometry(100, 100, 1000, 800)
         self.setStyleSheet("ModelBrowser {background-color: #2d2d2d; color: white;}")
 
+        # UI components for page navigation and search
         self.page_number_label = QLabel(self)
         self.page_number_label.setText("Page 1 of 1")
         self.page_number_label.setStyleSheet("font-size: 16px; color: #3498db;")
@@ -130,6 +146,10 @@ class ModelBrowser(QWidget):
         self.home_button.clicked.connect(self.show_home_page)
         self.home_button.setStyleSheet("background-color: #e74c3c; color: #fff; padding: 8px;")
 
+        self.data_loader_thread = DataLoaderThread(1)
+        self.data_loader_thread.data_loaded.connect(self.handle_data_loaded)
+
+        # Layouts for organizing UI components
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.prev_button)
         button_layout.addWidget(self.next_button)
@@ -141,6 +161,7 @@ class ModelBrowser(QWidget):
         home_layout = QHBoxLayout()
         home_layout.addWidget(self.home_button)
 
+        # Scroll area for displaying model information
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet("QScrollArea {background-color: #2d2d2d;}")
@@ -153,6 +174,7 @@ class ModelBrowser(QWidget):
         self.grid_layout.setHorizontalSpacing(0)
         self.grid_layout.setVerticalSpacing(0)
 
+        # Main layout for organizing all components
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(self.page_number_label)
         main_layout.addLayout(button_layout)
@@ -162,10 +184,62 @@ class ModelBrowser(QWidget):
         main_layout.addLayout(home_layout)
         self.setLayout(main_layout)
 
+        # Thread for loading data from the API
         self.data_loader_thread = DataLoaderThread(1)
         self.data_loader_thread.data_loaded.connect(self.handle_data_loaded)
 
+        # Fetch data for the initial page
         self.fetch_data(1)
+
+        self.cache_images_for_models()
+    def cache_images_for_models(self):
+        # Fetch data for the initial page to get models
+        self.data_loader_thread.page_number = 1
+        self.data_loader_thread.start()
+
+    def cache_image(self, model):
+        model_name = model.get('name', 'N/A')
+        model_versions = model.get('modelVersions', [])
+
+        if model_versions:
+            version = model_versions[0]  # Wähle die erste Version (0) aus
+            images = version.get('images', [])
+
+            if images:
+                image_url = images[0].get('url', '')
+
+                if image_url:
+                    image_filename = f"{model_name}_image.jpg"
+                    cache_folder = "cache"
+
+                    # check if folder is there
+                    os.makedirs(cache_folder, exist_ok=True)
+
+                    # path for img
+                    cached_image_path = os.path.join(cache_folder, image_filename)
+
+                    # Überprüfe, ob das Bild bereits im Cache vorhanden ist
+                    with self.cache_lock:
+                        if not os.path.exists(cached_image_path):
+                            # download and safe in cashe
+                            response = requests.get(image_url, stream=True)
+
+                            if response.status_code == 200:
+                                with open(cached_image_path, 'wb') as file:
+                                    for chunk in response.iter_content(chunk_size=1024):
+                                        file.write(chunk)
+
+                                print(f"Image cached for {model_name} at: {cached_image_path}")
+                            else:
+                                print(f"Failed to download image for {model_name}. Status code: {response.status_code}")
+                        else:
+                            print(f"Using cached image for {model_name} from: {cached_image_path}")
+                else:
+                    print(f"Image URL not found for {model_name}")
+            else:
+                print(f"No images found for {model_name}")
+        else:
+            print(f"No model versions found for {model_name}")
 
     def closeEvent(self, event):
         self.data_loader_thread.quit()
@@ -176,17 +250,21 @@ class ModelBrowser(QWidget):
         QApplication.processEvents()
 
     def handle_data_loaded(self, data):
-        items = data.get('items', [])
-        metadata = data.get('metadata', {})
+            items = data.get('items', [])
+            metadata = data.get('metadata', {})
 
-        current_page = metadata.get('currentPage', 1)
-        total_pages = metadata.get('totalPages', 1)
-        self.page_number_entry.setText(str(current_page))
-        self.page_number_label.setText(f"Page {current_page} of {total_pages}")
-        self.prev_button.setEnabled(current_page > 1)
-        self.next_button.setEnabled(current_page < total_pages)
-        self.print_items(items)
-        self.update_gui()
+            current_page = metadata.get('currentPage', 1)
+            total_pages = metadata.get('totalPages', 1)
+            self.page_number_entry.setText(str(current_page))
+            self.page_number_label.setText(f"Page {current_page} of {total_pages}")
+            self.prev_button.setEnabled(current_page > 1)
+            self.next_button.setEnabled(current_page < total_pages)
+            self.print_items(items)
+            self.update_gui()
+
+            # Cache images for the models in the loaded data
+            for item in items:
+                self.cache_image(item)
 
     def fetch_data(self, page_number):
         self.data_loader_thread.page_number = page_number
@@ -205,14 +283,21 @@ class ModelBrowser(QWidget):
 
         info_text = f"ID: {id}\nName: {name}\nType: {type}\nNSFW: {nsfw_string}\nAllow Commercial Use: {allow_commercial_use_string}"
         info_text += f"\nNumber of Model Versions: {num_model_versions}"
-        info_label = QLabel(info_text)
+
+        info_label = QLabel(info_text, self)
+
         frame = QFrame()
         frame.setFrameStyle(QFrame.Panel | QFrame.Raised)
         frame.setLayout(QVBoxLayout())
         frame.layout().addWidget(info_label)
+
+        # Add image to the frame
+        self.display_image(item, grid_row, grid_col)
+
         self.grid_layout.addWidget(frame, grid_row, grid_col)
 
         frame.mousePressEvent = lambda event, item=item: self.show_model_details(item)
+
 
     def convert_boolean_to_string(self, boolean_value):
         return "Yes" if boolean_value else "No"
@@ -280,8 +365,42 @@ class ModelBrowser(QWidget):
         self.search_entry.clear()
         self.fetch_data_with_search("")
 
+    def display_image(self, model, grid_row, grid_col):
+        model_name = model.get('name', 'N/A')
+        model_versions = model.get('modelVersions', [])
+
+        if model_versions:
+            version = model_versions[0]  # Wähle die erste Version (0) aus
+            images = version.get('images', [])
+
+            if images:
+                image_url = images[0].get('url', '')
+
+                if image_url:
+                    image_label = QLabel(self)
+                    pixmap = self.load_image(image_url)
+                    
+                    # Skaliere das Bild auf eine maximale Höhe von 150 Pixeln
+                    pixmap = pixmap.scaledToHeight(150, Qt.SmoothTransformation)
+                    
+                    image_label.setPixmap(pixmap)
+                    image_label.setScaledContents(True)
+
+                    self.grid_layout.addWidget(image_label, grid_row, grid_col + 1)
+
+
+    def load_image(self, image_url):
+        # load img 
+        image_data = requests.get(image_url).content
+        pixmap = QPixmap()
+        pixmap.loadFromData(image_data)
+        return pixmap
+
+
 if __name__ == '__main__':
+    print("Starting the application...")
     app = QApplication(sys.argv)
     model_browser = ModelBrowser()
     model_browser.show()
+    print("Application started.")
     sys.exit(app.exec_())
